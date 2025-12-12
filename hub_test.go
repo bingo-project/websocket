@@ -591,6 +591,8 @@ func TestHub_KickClient(t *testing.T) {
 		Send: make(chan []byte, 256),
 	}
 	hub.Register <- client
+	time.Sleep(10 * time.Millisecond)
+
 	hub.Login <- &websocket.LoginEvent{Client: client, UserID: "user-123", Platform: websocket.PlatformWeb}
 	time.Sleep(10 * time.Millisecond)
 
