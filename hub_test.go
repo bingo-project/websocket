@@ -652,3 +652,159 @@ func TestHub_KickUser(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	assert.Equal(t, 0, hub.ClientCount())
 }
+
+// Concurrent tests for race detection
+
+func TestHub_ConcurrentRegisterUnregister(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hub := websocket.NewHub()
+	go hub.Run(ctx)
+
+	const numClients = 100
+	clients := make([]*websocket.Client, numClients)
+
+	// Create clients
+	for i := 0; i < numClients; i++ {
+		clients[i] = &websocket.Client{
+			ID:   string(rune('a' + i%26)) + string(rune(i)),
+			Addr: "client",
+			Send: make(chan []byte, 10),
+		}
+	}
+
+	// Concurrent register
+	for i := 0; i < numClients; i++ {
+		go func(c *websocket.Client) {
+			hub.Register <- c
+		}(clients[i])
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Concurrent unregister
+	for i := 0; i < numClients; i++ {
+		go func(c *websocket.Client) {
+			hub.Unregister <- c
+		}(clients[i])
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, 0, hub.AnonymousCount())
+}
+
+func TestHub_ConcurrentLoginAndBroadcast(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hub := websocket.NewHub()
+	go hub.Run(ctx)
+
+	const numClients = 50
+	clients := make([]*websocket.Client, numClients)
+	platforms := []string{websocket.PlatformWeb, websocket.PlatformIOS, websocket.PlatformAndroid}
+
+	// Register and login clients concurrently
+	for i := 0; i < numClients; i++ {
+		clients[i] = &websocket.Client{
+			ID:   string(rune('a'+i%26)) + string(rune(i)),
+			Addr: "client",
+			Send: make(chan []byte, 256),
+		}
+		hub.Register <- clients[i]
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	// Concurrent logins
+	for i := 0; i < numClients; i++ {
+		go func(idx int) {
+			hub.Login <- &websocket.LoginEvent{
+				Client:   clients[idx],
+				UserID:   "user-" + string(rune('0'+idx%10)),
+				Platform: platforms[idx%3],
+			}
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Concurrent broadcasts while clients are connected
+	for i := 0; i < 10; i++ {
+		go func() {
+			hub.Broadcast <- []byte(`{"jsonrpc":"2.0","method":"test","params":{}}`)
+		}()
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Drain client send channels
+	for _, c := range clients {
+		for len(c.Send) > 0 {
+			<-c.Send
+		}
+	}
+
+	assert.True(t, hub.ClientCount() > 0)
+}
+
+func TestHub_ConcurrentSubscribeAndPush(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	hub := websocket.NewHub()
+	go hub.Run(ctx)
+
+	const numClients = 30
+	clients := make([]*websocket.Client, numClients)
+	topics := []string{"topic1", "topic2", "topic3"}
+
+	// Setup clients
+	for i := 0; i < numClients; i++ {
+		clients[i] = &websocket.Client{
+			ID:   string(rune('a'+i%26)) + string(rune(i)),
+			Addr: "client",
+			Send: make(chan []byte, 256),
+		}
+		hub.Register <- clients[i]
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	for i := 0; i < numClients; i++ {
+		hub.Login <- &websocket.LoginEvent{
+			Client:   clients[i],
+			UserID:   "user-" + string(rune('0'+i%10)),
+			Platform: websocket.PlatformWeb,
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	// Concurrent subscriptions
+	for i := 0; i < numClients; i++ {
+		go func(idx int) {
+			hub.Subscribe <- &websocket.SubscribeEvent{
+				Client: clients[idx],
+				Topics: []string{topics[idx%3]},
+			}
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Concurrent push to topics while subscriptions may still be processing
+	for i := 0; i < 20; i++ {
+		go func(idx int) {
+			hub.PushToTopic(topics[idx%3], "test.push", map[string]int{"n": idx})
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Concurrent unsubscribe
+	for i := 0; i < numClients; i++ {
+		go func(idx int) {
+			hub.Unsubscribe <- &websocket.UnsubscribeEvent{
+				Client: clients[idx],
+				Topics: []string{topics[idx%3]},
+			}
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Equal(t, 0, hub.TopicCount())
+}
