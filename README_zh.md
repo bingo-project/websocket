@@ -3,27 +3,27 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/bingo-project/websocket.svg)](https://pkg.go.dev/github.com/bingo-project/websocket)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bingo-project/websocket)](https://goreportcard.com/report/github.com/bingo-project/websocket)
 
-A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with middleware support, grouped routing, and connection management.
+一个生产就绪的 Go WebSocket 框架，采用 JSON-RPC 2.0 协议，支持中间件、分组路由和连接管理。
 
-[中文文档](README_zh.md)
+[English](README.md)
 
-## Features
+## 特性
 
-- **JSON-RPC 2.0 Protocol** - Industry-standard message format (used by MCP, Ethereum, VSCode LSP)
-- **Middleware Pattern** - Familiar programming model like Gin/Echo
-- **Grouped Routing** - Support public/private groups with different middleware chains
-- **Connection Management** - Hub for client registration, authentication, and topic subscriptions
-- **Built-in Handlers** - Heartbeat, subscribe/unsubscribe out of the box
-- **Rate Limiting** - Token bucket algorithm with per-method configuration
-- **Single Device Login** - Automatic session kick when same user logs in from another device
+- **JSON-RPC 2.0 协议** - 行业标准消息格式（MCP、以太坊、VSCode LSP 等广泛使用）
+- **中间件模式** - 类似 Gin/Echo 的熟悉编程模型
+- **分组路由** - 支持 public/private 分组，不同方法使用不同中间件链
+- **连接管理** - Hub 管理客户端注册、认证和主题订阅
+- **内置处理器** - 开箱即用的心跳、订阅/取消订阅
+- **限流** - 令牌桶算法，支持按方法配置
+- **单设备登录** - 同一用户再次登录时自动踢掉旧会话
 
-## Installation
+## 安装
 
 ```bash
 go get github.com/bingo-project/websocket
 ```
 
-## Quick Start
+## 快速开始
 
 ```go
 package main
@@ -40,29 +40,29 @@ import (
 )
 
 func main() {
-    // Create hub and router
+    // 创建 hub 和 router
     hub := websocket.NewHub()
     router := websocket.NewRouter()
 
-    // Add global middleware
+    // 添加全局中间件
     router.Use(
         middleware.Recovery,
         middleware.RequestID,
         middleware.Logger,
     )
 
-    // Public methods (no auth required)
+    // 公开方法（无需认证）
     public := router.Group()
     public.Handle("heartbeat", websocket.HeartbeatHandler)
     public.Handle("echo", func(c *websocket.Context) *jsonrpc.Response {
         return c.JSON(c.Request.Params)
     })
 
-    // Private methods (require auth)
+    // 私有方法（需要认证）
     private := router.Group(middleware.Auth)
     private.Handle("subscribe", websocket.SubscribeHandler)
 
-    // Start hub
+    // 启动 hub
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
     go hub.Run(ctx)
@@ -72,7 +72,7 @@ func main() {
         CheckOrigin: func(r *http.Request) bool { return true },
     }
 
-    // HTTP handler
+    // HTTP 处理器
     http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
         conn, err := upgrader.Upgrade(w, r, nil)
         if err != nil {
@@ -88,14 +88,14 @@ func main() {
         go client.ReadPump()
     })
 
-    log.Println("Server starting on :8080")
+    log.Println("服务器启动于 :8080")
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
 ```
 
-## Message Format
+## 消息格式
 
-### Request
+### 请求
 
 ```json
 {
@@ -106,7 +106,7 @@ func main() {
 }
 ```
 
-### Success Response
+### 成功响应
 
 ```json
 {
@@ -116,7 +116,7 @@ func main() {
 }
 ```
 
-### Error Response
+### 错误响应
 
 ```json
 {
@@ -124,46 +124,46 @@ func main() {
     "error": {
         "code": -32001,
         "reason": "Unauthorized",
-        "message": "Login required"
+        "message": "需要登录"
     },
     "id": 1
 }
 ```
 
-### Server Push (Notification)
+### 服务端推送（通知）
 
 ```json
 {
     "jsonrpc": "2.0",
     "method": "session.kicked",
-    "params": {"reason": "Account logged in elsewhere"}
+    "params": {"reason": "您的账号已在其他设备登录"}
 }
 ```
 
-## Middleware
+## 中间件
 
-### Built-in Middleware
+### 内置中间件
 
-| Middleware | Description |
-|------------|-------------|
-| `Recovery` / `RecoveryWithLogger` | Catch panics, return 500 error |
-| `RequestID` | Inject request-id into context |
-| `Logger` / `LoggerWithLogger` | Log requests and latency |
-| `Auth` | Verify user is authenticated |
-| `RateLimit` / `RateLimitWithStore` | Token bucket rate limiting |
-| `LoginStateUpdater` | Update client state after login |
+| 中间件 | 说明 |
+|-------|------|
+| `Recovery` / `RecoveryWithLogger` | 捕获 panic，返回 500 错误 |
+| `RequestID` | 注入 request-id 到 context |
+| `Logger` / `LoggerWithLogger` | 记录请求日志和延迟 |
+| `Auth` | 验证用户已认证 |
+| `RateLimit` / `RateLimitWithStore` | 令牌桶限流 |
+| `LoginStateUpdater` | 登录成功后更新客户端状态 |
 
-### Custom Middleware
+### 自定义中间件
 
 ```go
 func MyMiddleware(next websocket.Handler) websocket.Handler {
     return func(c *websocket.Context) *jsonrpc.Response {
-        // Before handler
+        // 处理器之前
         log.Printf("Method: %s", c.Method)
 
         resp := next(c)
 
-        // After handler
+        // 处理器之后
         return resp
     }
 }
@@ -180,10 +180,10 @@ func Login(c *websocket.Context) *jsonrpc.Response {
         return c.Error(errors.New(400, "InvalidParams", err.Error()))
     }
 
-    // Business logic...
+    // 业务逻辑...
     token := authenticate(req.Username, req.Password)
 
-    // Update client login state
+    // 更新客户端登录状态
     c.Client.NotifyLogin(userID, req.Platform, tokenExpiresAt)
 
     return c.JSON(map[string]any{
@@ -193,88 +193,88 @@ func Login(c *websocket.Context) *jsonrpc.Response {
 }
 ```
 
-## Connection Management
+## 连接管理
 
 ### Hub API
 
 ```go
-// Get client by ID
+// 根据 ID 获取客户端
 client := hub.GetClient("client-id")
 
-// Get all clients for a user
+// 获取用户的所有客户端
 clients := hub.GetClientsByUser("user-123")
 
-// Kick client
+// 踢出客户端
 hub.KickClient("client-id", "reason")
 
-// Kick all sessions of a user
-hub.KickUser("user-123", "account suspended")
+// 踢出用户的所有会话
+hub.KickUser("user-123", "账号已被封禁")
 
-// Get statistics
+// 获取统计信息
 stats := hub.Stats()
 ```
 
-### Push Messages
+### 推送消息
 
 ```go
-// Push to specific user on specific platform
+// 推送给特定平台的特定用户
 hub.PushToUser("ios", "user-123", "order.created", data)
 
-// Push to user on all platforms
+// 推送给用户的所有平台
 hub.PushToUserAllPlatforms("user-123", "security.alert", data)
 
-// Push to topic subscribers
+// 推送给主题订阅者
 hub.PushToTopic("group:123", "message.new", data)
 
-// Broadcast to all authenticated clients
+// 广播给所有已认证客户端
 hub.Broadcast <- message
 ```
 
-### Topic Subscription
+### 主题订阅
 
 ```go
-// Client subscribes to topics
+// 客户端订阅主题
 hub.Subscribe <- &websocket.SubscribeEvent{
     Client: client,
     Topics: []string{"group:123", "room:lobby"},
     Result: resultChan,
 }
 
-// Client unsubscribes
+// 客户端取消订阅
 hub.Unsubscribe <- &websocket.UnsubscribeEvent{
     Client: client,
     Topics: []string{"group:123"},
 }
 ```
 
-## Rate Limiting
+## 限流
 
 ```go
 store := middleware.NewRateLimiterStore()
 
 router.Use(middleware.RateLimitWithStore(&middleware.RateLimitConfig{
-    Default: 10, // 10 requests/second
+    Default: 10, // 每秒 10 个请求
     Methods: map[string]float64{
-        "heartbeat": 0,  // No limit
-        "subscribe": 5,  // 5 requests/second
+        "heartbeat": 0,  // 不限制
+        "subscribe": 5,  // 每秒 5 个请求
     },
 }, store))
 
-// Clean up when client disconnects
+// 客户端断开时清理
 hub := websocket.NewHub(
     websocket.WithClientDisconnectCallback(store.Remove),
 )
 ```
 
-## Configuration
+## 配置
 
 ```go
 cfg := &websocket.HubConfig{
-    AnonymousTimeout: 10 * time.Second,  // Disconnect if not logged in within 10s
-    AnonymousCleanup: 2 * time.Second,   // Cleanup interval
-    HeartbeatTimeout: 60 * time.Second,  // No heartbeat for 60s -> disconnect
+    AnonymousTimeout: 10 * time.Second,  // 10s 内未登录则断开
+    AnonymousCleanup: 2 * time.Second,   // 清理间隔
+    HeartbeatTimeout: 60 * time.Second,  // 60s 无心跳则断开
     HeartbeatCleanup: 30 * time.Second,
-    PingPeriod:       54 * time.Second,  // WebSocket ping interval
+    PingPeriod:       54 * time.Second,  // WebSocket ping 间隔
     PongWait:         60 * time.Second,
     MaxMessageSize:   4096,
     WriteWait:        10 * time.Second,
@@ -283,17 +283,17 @@ cfg := &websocket.HubConfig{
 hub := websocket.NewHubWithConfig(cfg)
 ```
 
-## Error Code Mapping
+## 错误码映射
 
-| HTTP Status | JSON-RPC Code | Description |
-|-------------|---------------|-------------|
-| 400 | -32602 | Invalid params |
-| 401 | -32001 | Unauthorized |
-| 403 | -32003 | Permission denied |
-| 404 | -32004 | Not found |
-| 429 | -32029 | Too many requests |
-| 500 | -32603 | Internal error |
+| HTTP 状态码 | JSON-RPC 码 | 说明 |
+|------------|-------------|------|
+| 400 | -32602 | 无效参数 |
+| 401 | -32001 | 未授权 |
+| 403 | -32003 | 权限拒绝 |
+| 404 | -32004 | 未找到 |
+| 429 | -32029 | 请求过多 |
+| 500 | -32603 | 内部错误 |
 
-## License
+## 许可证
 
 MIT License
