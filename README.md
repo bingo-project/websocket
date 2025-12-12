@@ -2,6 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bingo-project/websocket.svg)](https://pkg.go.dev/github.com/bingo-project/websocket)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bingo-project/websocket)](https://goreportcard.com/report/github.com/bingo-project/websocket)
+[![CI](https://github.com/bingo-project/websocket/actions/workflows/test.yml/badge.svg)](https://github.com/bingo-project/websocket/actions/workflows/test.yml)
 
 A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with middleware support, grouped routing, and connection management.
 
@@ -16,6 +17,9 @@ A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with m
 - **Built-in Handlers** - Heartbeat, subscribe/unsubscribe out of the box
 - **Rate Limiting** - Token bucket algorithm with per-method configuration
 - **Single Device Login** - Automatic session kick when same user logs in from another device
+- **Prometheus Metrics** - Built-in observability with connection, message, and error metrics
+- **Connection Limits** - Configurable total and per-user connection limits
+- **Graceful Shutdown** - Clean shutdown with client notification
 
 ## Installation
 
@@ -329,6 +333,22 @@ if !hub.CanUserConnect(userID) {
 }
 
 // Limits are also enforced automatically in hub
+```
+
+## Graceful Shutdown
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+go hub.Run(ctx)
+
+// Handle shutdown signal
+sigCh := make(chan os.Signal, 1)
+signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+<-sigCh
+
+// Cancel context to trigger graceful shutdown
+// Hub will notify all clients before closing
+cancel()
 ```
 
 ## Examples

@@ -2,6 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/bingo-project/websocket.svg)](https://pkg.go.dev/github.com/bingo-project/websocket)
 [![Go Report Card](https://goreportcard.com/badge/github.com/bingo-project/websocket)](https://goreportcard.com/report/github.com/bingo-project/websocket)
+[![CI](https://github.com/bingo-project/websocket/actions/workflows/test.yml/badge.svg)](https://github.com/bingo-project/websocket/actions/workflows/test.yml)
 
 一个生产就绪的 Go WebSocket 框架，采用 JSON-RPC 2.0 协议，支持中间件、分组路由和连接管理。
 
@@ -16,6 +17,9 @@
 - **内置处理器** - 开箱即用的心跳、订阅/取消订阅
 - **限流** - 令牌桶算法，支持按方法配置
 - **单设备登录** - 同一用户再次登录时自动踢掉旧会话
+- **Prometheus 指标** - 内置可观测性，包含连接、消息和错误指标
+- **连接限制** - 可配置的总连接数和单用户连接数限制
+- **优雅关闭** - 关闭前通知客户端
 
 ## 安装
 
@@ -329,6 +333,22 @@ if !hub.CanUserConnect(userID) {
 }
 
 // 限制也会在 hub 中自动执行
+```
+
+## 优雅关闭
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+go hub.Run(ctx)
+
+// 处理关闭信号
+sigCh := make(chan os.Signal, 1)
+signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+<-sigCh
+
+// 取消 context 触发优雅关闭
+// Hub 会在关闭前通知所有客户端
+cancel()
 ```
 
 ## 示例
