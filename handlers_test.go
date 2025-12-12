@@ -15,10 +15,11 @@ import (
 )
 
 func TestHeartbeatHandler(t *testing.T) {
+	client := &Client{}
 	c := &Context{
 		Context: context.Background(),
 		Request: &jsonrpc.Request{ID: 1, Method: "heartbeat"},
-		Client:  &Client{HeartbeatTime: 0},
+		Client:  client,
 		Method:  "heartbeat",
 	}
 

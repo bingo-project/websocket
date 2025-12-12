@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,13 +17,7 @@ import (
 )
 
 const (
-	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (pongWait * 9) / 10
-
-	// Heartbeat timeout in seconds.
+	// Heartbeat timeout in seconds (application-level heartbeat).
 	heartbeatTimeout = 90
 )
 
@@ -54,12 +49,17 @@ type Client struct {
 	// Client info
 	ID             string // Unique client identifier
 	Addr           string
-	Platform       string
-	UserID         string
 	FirstTime      int64
-	HeartbeatTime  int64
-	LoginTime      int64
 	TokenExpiresAt int64
+
+	// Protected by atomic operations
+	heartbeatTime atomic.Int64
+
+	// Protected by authLock
+	authLock sync.RWMutex
+	Platform  string
+	UserID    string
+	LoginTime int64
 
 	// Subscribed topics (managed by Hub, read-only for Client)
 	topics     map[string]bool
@@ -98,15 +98,15 @@ func NewClient(hub *Hub, conn *websocket.Conn, ctx context.Context, opts ...Clie
 		addr = conn.RemoteAddr().String()
 	}
 	c := &Client{
-		hub:           hub,
-		conn:          conn,
-		ctx:           ctx,
-		Send:          make(chan []byte, 256),
-		ID:            uuid.New().String(),
-		Addr:          addr,
-		FirstTime:     now,
-		HeartbeatTime: now,
+		hub:       hub,
+		conn:      conn,
+		ctx:       ctx,
+		Send:      make(chan []byte, 256),
+		ID:        uuid.New().String(),
+		Addr:      addr,
+		FirstTime: now,
 	}
+	c.heartbeatTime.Store(now)
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -117,14 +117,18 @@ func NewClient(hub *Hub, conn *websocket.Conn, ctx context.Context, opts ...Clie
 // ReadPump pumps messages from the websocket connection to the hub.
 func (c *Client) ReadPump() {
 	defer func() {
-		c.hub.Unregister <- c
+		// Use select to avoid blocking if hub is shutting down
+		select {
+		case c.hub.Unregister <- c:
+		case <-c.hub.Done():
+		}
 		c.conn.Close()
 	}()
 
 	c.conn.SetReadLimit(c.hub.config.MaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetReadDeadline(time.Now().Add(c.hub.config.PongWait))
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		c.conn.SetReadDeadline(time.Now().Add(c.hub.config.PongWait))
 
 		return nil
 	})
@@ -145,7 +149,7 @@ func (c *Client) ReadPump() {
 
 // WritePump pumps messages from the hub to the websocket connection.
 func (c *Client) WritePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.hub.config.PingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -229,25 +233,51 @@ func (c *Client) SendJSON(v any) {
 
 // Heartbeat updates the heartbeat time.
 func (c *Client) Heartbeat(currentTime int64) {
-	c.HeartbeatTime = currentTime
+	c.heartbeatTime.Store(currentTime)
+}
+
+// HeartbeatTime returns the last heartbeat time.
+func (c *Client) HeartbeatTime() int64 {
+	return c.heartbeatTime.Load()
 }
 
 // IsHeartbeatTimeout returns true if heartbeat has timed out.
 func (c *Client) IsHeartbeatTimeout(currentTime int64) bool {
-	return c.HeartbeatTime+heartbeatTimeout <= currentTime
+	return c.heartbeatTime.Load()+heartbeatTimeout <= currentTime
 }
 
 // IsAuthenticated returns true if the client has logged in.
 func (c *Client) IsAuthenticated() bool {
+	c.authLock.RLock()
+	defer c.authLock.RUnlock()
+
 	return c.UserID != "" && c.Platform != "" && c.LoginTime > 0
 }
 
 // Login sets the user info for this client.
 func (c *Client) Login(platform, userID string, loginTime int64) {
+	c.authLock.Lock()
 	c.Platform = platform
 	c.UserID = userID
 	c.LoginTime = loginTime
+	c.authLock.Unlock()
 	c.Heartbeat(loginTime)
+}
+
+// GetUserID returns the user ID (thread-safe).
+func (c *Client) GetUserID() string {
+	c.authLock.RLock()
+	defer c.authLock.RUnlock()
+
+	return c.UserID
+}
+
+// GetPlatform returns the platform (thread-safe).
+func (c *Client) GetPlatform() string {
+	c.authLock.RLock()
+	defer c.authLock.RUnlock()
+
+	return c.Platform
 }
 
 // ParseToken parses a JWT token using the client's token parser.

@@ -6,6 +6,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -49,6 +50,10 @@ type Hub struct {
 	Broadcast   chan []byte
 	Subscribe   chan *SubscribeEvent
 	Unsubscribe chan *UnsubscribeEvent
+
+	// done is closed when Hub is shutting down
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 // LoginEvent represents a user login event.
@@ -118,6 +123,7 @@ func NewHubWithConfig(cfg *HubConfig, opts ...HubOption) *Hub {
 		Broadcast:   make(chan []byte, 256),
 		Subscribe:   make(chan *SubscribeEvent, 256),
 		Unsubscribe: make(chan *UnsubscribeEvent, 256),
+		done:        make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -172,6 +178,11 @@ func (h *Hub) Run(ctx context.Context) {
 
 // shutdown closes all client connections on hub shutdown.
 func (h *Hub) shutdown() {
+	// Signal all clients that hub is shutting down
+	h.doneOnce.Do(func() {
+		close(h.done)
+	})
+
 	h.notifyShutdown()
 
 	// Close anonymous connections
@@ -302,9 +313,11 @@ func (h *Hub) handleUnregister(client *Client) {
 	h.clientsLock.Unlock()
 
 	// Remove from users if logged in
-	if client.UserID != "" && client.Platform != "" {
+	userID := client.GetUserID()
+	platform := client.GetPlatform()
+	if userID != "" && platform != "" {
 		h.userLock.Lock()
-		key := userKey(client.Platform, client.UserID)
+		key := userKey(platform, userID)
 		if c, ok := h.users[key]; ok && c == client {
 			delete(h.users, key)
 		}
@@ -322,7 +335,7 @@ func (h *Hub) handleUnregister(client *Client) {
 		h.metrics.AuthenticatedConns.Dec()
 	}
 
-	h.logger.Infow("WebSocket client disconnected", "addr", client.Addr, "user_id", client.UserID, "platform", client.Platform)
+	h.logger.Infow("WebSocket client disconnected", "addr", client.Addr, "user_id", userID, "platform", platform)
 }
 
 func (h *Hub) unsubscribeAll(client *Client) {
@@ -384,11 +397,8 @@ func (h *Hub) handleLogin(event *LoginEvent) {
 
 	// Update client info
 	now := time.Now().Unix()
-	client.UserID = event.UserID
-	client.Platform = event.Platform
-	client.LoginTime = now
+	client.Login(event.Platform, event.UserID, now)
 	client.TokenExpiresAt = event.TokenExpiresAt
-	client.Heartbeat(now)
 
 	// Check for existing session
 	h.userLock.Lock()
@@ -416,7 +426,7 @@ func (h *Hub) handleLogin(event *LoginEvent) {
 }
 
 func (h *Hub) kickClient(client *Client, reason string) {
-	h.logger.Infow("WebSocket client kicked", "addr", client.Addr, "user_id", client.UserID, "platform", client.Platform, "reason", reason)
+	h.logger.Infow("WebSocket client kicked", "addr", client.Addr, "user_id", client.GetUserID(), "platform", client.GetPlatform(), "reason", reason)
 
 	// Send kick notification
 	push := jsonrpc.NewPush("session.kicked", map[string]string{
@@ -506,7 +516,9 @@ func (h *Hub) UserConnectionCount(userID string) int {
 	count := 0
 	suffix := "_" + userID
 	for key := range h.users {
-		if len(key) > len(suffix) && key[len(key)-len(suffix):] == suffix {
+		// Key format is "platform_userID"
+		// We need exact suffix match, not partial (e.g., "_123" should not match "_0123")
+		if strings.HasSuffix(key, suffix) && len(key) > len(suffix) {
 			count++
 		}
 	}
@@ -538,6 +550,11 @@ func (h *Hub) GetClient(clientID string) *Client {
 	defer h.clientsByIDLock.RUnlock()
 
 	return h.clientsByID[clientID]
+}
+
+// Done returns a channel that's closed when the hub is shutting down.
+func (h *Hub) Done() <-chan struct{} {
+	return h.done
 }
 
 // GetClientsByUser returns all clients for a user across all platforms.
@@ -595,8 +612,8 @@ func (h *Hub) Stats() *HubStats {
 	authenticated := int64(len(h.clients))
 	byPlatform := make(map[string]int)
 	for client := range h.clients {
-		if client.Platform != "" {
-			byPlatform[client.Platform]++
+		if p := client.GetPlatform(); p != "" {
+			byPlatform[p]++
 		}
 	}
 	h.clientsLock.RUnlock()
@@ -718,7 +735,7 @@ func (h *Hub) doSubscribe(client *Client, topics []string) []string {
 		h.metrics.TopicsTotal.Set(float64(len(h.topics)))
 	}
 
-	h.logger.Debugw("WebSocket client subscribed", "addr", client.Addr, "user_id", client.UserID, "topics", subscribed)
+	h.logger.Debugw("WebSocket client subscribed", "addr", client.Addr, "user_id", client.GetUserID(), "topics", subscribed)
 
 	return subscribed
 }
@@ -745,7 +762,7 @@ func (h *Hub) doUnsubscribe(client *Client, topics []string) {
 		h.metrics.TopicsTotal.Set(float64(len(h.topics)))
 	}
 
-	h.logger.Debugw("WebSocket client unsubscribed", "addr", client.Addr, "user_id", client.UserID, "topics", topics)
+	h.logger.Debugw("WebSocket client unsubscribed", "addr", client.Addr, "user_id", client.GetUserID(), "topics", topics)
 }
 
 func (h *Hub) cleanupAnonymous() {
@@ -776,7 +793,7 @@ func (h *Hub) cleanupInactiveClients() {
 
 	for client := range h.clients {
 		// Check heartbeat timeout
-		if client.HeartbeatTime+heartbeatTimeout <= now {
+		if client.HeartbeatTime()+heartbeatTimeout <= now {
 			inactive = append(inactive, client)
 
 			continue
@@ -812,16 +829,18 @@ func (h *Hub) expireClient(client *Client) {
 	h.clientsLock.Unlock()
 
 	// Remove from users map
-	if client.UserID != "" && client.Platform != "" {
+	userID := client.GetUserID()
+	platform := client.GetPlatform()
+	if userID != "" && platform != "" {
 		h.userLock.Lock()
-		key := userKey(client.Platform, client.UserID)
+		key := userKey(platform, userID)
 		if c, ok := h.users[key]; ok && c == client {
 			delete(h.users, key)
 		}
 		h.userLock.Unlock()
 	}
 
-	h.logger.Infow("WebSocket client token expired", "addr", client.Addr, "user_id", client.UserID, "platform", client.Platform)
+	h.logger.Infow("WebSocket client token expired", "addr", client.Addr, "user_id", userID, "platform", platform)
 
 	push := jsonrpc.NewPush("session.expired", map[string]string{
 		"reason": "Token 已过期，请重新登录",

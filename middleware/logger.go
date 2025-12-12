@@ -23,8 +23,8 @@ func LoggerWithLogger(logger websocket.Logger) websocket.Middleware {
 
 			if c.Client != nil {
 				fields = append(fields, "client_id", c.Client.ID, "client_addr", c.Client.Addr)
-				if c.Client.UserID != "" {
-					fields = append(fields, "user_id", c.Client.UserID)
+				if userID := c.Client.GetUserID(); userID != "" {
+					fields = append(fields, "user_id", userID)
 				}
 			}
 

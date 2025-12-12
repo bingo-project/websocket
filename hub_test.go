@@ -405,7 +405,8 @@ func TestHub_TokenExpiration(t *testing.T) {
 	go hub.Run(ctx)
 
 	now := time.Now().Unix()
-	client := &websocket.Client{Addr: "client1", Send: make(chan []byte, 10), FirstTime: now, HeartbeatTime: now}
+	client := &websocket.Client{Addr: "client1", Send: make(chan []byte, 10), FirstTime: now}
+	client.Heartbeat(now)
 	hub.Register <- client
 	time.Sleep(10 * time.Millisecond)
 
@@ -436,7 +437,8 @@ func TestHub_UnsubscribeAllOnDisconnect(t *testing.T) {
 	time.Sleep(10 * time.Millisecond) // Wait for hub to start
 
 	now := time.Now().Unix()
-	client := &websocket.Client{Addr: "client1", Send: make(chan []byte, 10), FirstTime: now, HeartbeatTime: now}
+	client := &websocket.Client{Addr: "client1", Send: make(chan []byte, 10), FirstTime: now}
+	client.Heartbeat(now)
 	hub.Register <- client
 	time.Sleep(10 * time.Millisecond)
 	hub.Login <- &websocket.LoginEvent{Client: client, UserID: "user-123", Platform: websocket.PlatformIOS}

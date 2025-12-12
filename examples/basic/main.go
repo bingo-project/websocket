@@ -90,8 +90,16 @@ func main() {
 	go hub.Run(ctx)
 
 	// WebSocket upgrader
+	// WARNING: In production, implement proper origin checking to prevent CSRF attacks.
+	// Example: Check r.Header.Get("Origin") against allowed domains.
 	upgrader := gorillaWS.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin: func(r *http.Request) bool {
+			// For development only - allow all origins
+			// In production, validate against your allowed domains:
+			// origin := r.Header.Get("Origin")
+			// return origin == "https://yourdomain.com"
+			return true
+		},
 	}
 
 	// WebSocket handler
@@ -189,7 +197,7 @@ func loginHandler(c *websocket.Context) *jsonrpc.Response {
 // whoamiHandler returns current user info
 func whoamiHandler(c *websocket.Context) *jsonrpc.Response {
 	return c.JSON(map[string]any{
-		"user_id":  c.Client.UserID,
-		"platform": c.Client.Platform,
+		"user_id":  c.Client.GetUserID(),
+		"platform": c.Client.GetPlatform(),
 	})
 }

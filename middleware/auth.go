@@ -17,7 +17,7 @@ func Auth(next websocket.Handler) websocket.Handler {
 		}
 
 		// Add user ID to context
-		c.Context = websocket.WithUserID(c.Context, c.Client.UserID)
+		c.Context = websocket.WithUserID(c.Context, c.Client.GetUserID())
 
 		return next(c)
 	}
