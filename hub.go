@@ -19,6 +19,7 @@ type ClientDisconnectCallback func(client *Client)
 type Hub struct {
 	config             *HubConfig
 	logger             Logger
+	metrics            *Metrics
 	onClientDisconnect ClientDisconnectCallback
 
 	// Anonymous connections (not yet logged in)
@@ -86,6 +87,13 @@ func WithLogger(l Logger) HubOption {
 func WithClientDisconnectCallback(cb ClientDisconnectCallback) HubOption {
 	return func(h *Hub) {
 		h.onClientDisconnect = cb
+	}
+}
+
+// WithMetrics sets the Prometheus metrics for the hub.
+func WithMetrics(m *Metrics) HubOption {
+	return func(h *Hub) {
+		h.metrics = m
 	}
 }
 
@@ -200,6 +208,13 @@ func (h *Hub) handleRegister(client *Client) {
 		h.clientsByIDLock.Unlock()
 	}
 
+	// Update metrics
+	if h.metrics != nil {
+		h.metrics.ConnectionsTotal.Inc()
+		h.metrics.ConnectionsCurrent.Inc()
+		h.metrics.AnonymousConns.Inc()
+	}
+
 	h.logger.Debugw("WebSocket client connected", "addr", client.Addr, "id", client.ID)
 }
 
@@ -222,6 +237,13 @@ func (h *Hub) handleUnregister(client *Client) {
 		delete(h.anonymous, client)
 		h.anonymousLock.Unlock()
 		h.safeCloseSend(client)
+
+		// Update metrics
+		if h.metrics != nil {
+			h.metrics.ConnectionsCurrent.Dec()
+			h.metrics.AnonymousConns.Dec()
+		}
+
 		h.logger.Debugw("WebSocket anonymous client disconnected", "addr", client.Addr)
 
 		return
@@ -247,6 +269,13 @@ func (h *Hub) handleUnregister(client *Client) {
 	h.unsubscribeAll(client)
 
 	h.safeCloseSend(client)
+
+	// Update metrics
+	if h.metrics != nil {
+		h.metrics.ConnectionsCurrent.Dec()
+		h.metrics.AuthenticatedConns.Dec()
+	}
+
 	h.logger.Infow("WebSocket client disconnected", "addr", client.Addr, "user_id", client.UserID, "platform", client.Platform)
 }
 
@@ -291,6 +320,12 @@ func (h *Hub) handleLogin(event *LoginEvent) {
 	h.clients[client] = true
 	h.clientsLock.Unlock()
 
+	// Update metrics: anonymous -> authenticated
+	if h.metrics != nil {
+		h.metrics.AnonymousConns.Dec()
+		h.metrics.AuthenticatedConns.Inc()
+	}
+
 	h.logger.Infow("WebSocket client logged in", "addr", client.Addr, "user_id", event.UserID, "platform", event.Platform)
 
 	// Kick old client if exists
@@ -326,12 +361,20 @@ func (h *Hub) handleBroadcast(message []byte) {
 	h.clientsLock.RLock()
 	defer h.clientsLock.RUnlock()
 
+	var sent int
 	for client := range h.clients {
 		select {
 		case client.Send <- message:
+			sent++
 		default:
 			// Client buffer full, skip
 		}
+	}
+
+	// Update metrics
+	if h.metrics != nil {
+		h.metrics.BroadcastsSent.Inc()
+		h.metrics.MessagesSent.Add(float64(sent))
 	}
 }
 
@@ -444,6 +487,11 @@ func (h *Hub) Stats() *HubStats {
 	}
 }
 
+// Metrics returns the hub's metrics, or nil if not configured.
+func (h *Hub) Metrics() *Metrics {
+	return h.metrics
+}
+
 func userKey(platform, userID string) string {
 	return platform + "_" + userID
 }
@@ -542,6 +590,12 @@ func (h *Hub) doSubscribe(client *Client, topics []string) []string {
 		subscribed = append(subscribed, topic)
 	}
 
+	// Update metrics
+	if h.metrics != nil {
+		h.metrics.SubscriptionsTotal.Add(float64(len(subscribed)))
+		h.metrics.TopicsTotal.Set(float64(len(h.topics)))
+	}
+
 	h.logger.Debugw("WebSocket client subscribed", "addr", client.Addr, "user_id", client.UserID, "topics", subscribed)
 
 	return subscribed
@@ -562,6 +616,11 @@ func (h *Hub) doUnsubscribe(client *Client, topics []string) {
 		client.topicsLock.Lock()
 		delete(client.topics, topic)
 		client.topicsLock.Unlock()
+	}
+
+	// Update metrics
+	if h.metrics != nil {
+		h.metrics.TopicsTotal.Set(float64(len(h.topics)))
 	}
 
 	h.logger.Debugw("WebSocket client unsubscribed", "addr", client.Addr, "user_id", client.UserID, "topics", topics)
