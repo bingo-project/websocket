@@ -175,15 +175,19 @@ func BenchmarkHub_RegisterUnregister(b *testing.B) {
 
 	hub := websocket.NewHub()
 	go hub.Run(ctx)
+	time.Sleep(10 * time.Millisecond)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		client := &websocket.Client{
-			ID:   string(rune(i)),
-			Addr: "client",
-			Send: make(chan []byte, 10),
+			ID:        "bench-" + string(rune(i)),
+			Addr:      "client",
+			Send:      make(chan []byte, 10),
+			FirstTime: time.Now().Unix(),
 		}
 		hub.Register <- client
+		// Small delay to ensure registration is processed before unregistration
+		time.Sleep(time.Microsecond)
 		hub.Unregister <- client
 	}
 }

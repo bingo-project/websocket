@@ -215,22 +215,30 @@ func (h *Hub) notifyShutdown() {
 	// Notify anonymous clients
 	h.anonymousLock.RLock()
 	for client := range h.anonymous {
-		select {
-		case client.Send <- data:
-		default:
-		}
+		h.safeSend(client, data)
 	}
 	h.anonymousLock.RUnlock()
 
 	// Notify authenticated clients
 	h.clientsLock.RLock()
 	for client := range h.clients {
-		select {
-		case client.Send <- data:
-		default:
-		}
+		h.safeSend(client, data)
 	}
 	h.clientsLock.RUnlock()
+}
+
+// safeSend sends data to client's Send channel, recovering from panic if channel is closed.
+func (h *Hub) safeSend(client *Client, data []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was closed, ignore
+		}
+	}()
+
+	select {
+	case client.Send <- data:
+	default:
+	}
 }
 
 // safeCloseSend closes the client's Send channel safely using sync.Once.
