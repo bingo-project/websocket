@@ -278,10 +278,68 @@ cfg := &websocket.HubConfig{
     PongWait:         60 * time.Second,
     MaxMessageSize:   4096,
     WriteWait:        10 * time.Second,
+    MaxConnections:   10000,             // 最大总连接数 (0 = 不限制)
+    MaxConnsPerUser:  5,                 // 每用户最大连接数 (0 = 不限制)
+}
+
+// 使用前验证配置
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
 }
 
 hub := websocket.NewHubWithConfig(cfg)
 ```
+
+## Prometheus 指标
+
+```go
+import "github.com/prometheus/client_golang/prometheus"
+
+// 创建并注册指标
+metrics := websocket.NewMetrics("myapp", "websocket")
+metrics.MustRegister(prometheus.DefaultRegisterer)
+
+// 将指标附加到 hub
+hub := websocket.NewHub(websocket.WithMetrics(metrics))
+
+// 可用指标:
+// - myapp_websocket_connections_total
+// - myapp_websocket_connections_current
+// - myapp_websocket_connections_authenticated
+// - myapp_websocket_connections_anonymous
+// - myapp_websocket_messages_sent_total
+// - myapp_websocket_broadcasts_total
+// - myapp_websocket_errors_total{type="connection_limit|user_limit|..."}
+// - myapp_websocket_topics_current
+// - myapp_websocket_subscriptions_total
+```
+
+## 连接限制
+
+```go
+// 接受连接前检查（可选，用于提前拒绝）
+if !hub.CanAcceptConnection() {
+    http.Error(w, "连接数过多", http.StatusServiceUnavailable)
+    return
+}
+
+// 登录前检查（可选）
+if !hub.CanUserConnect(userID) {
+    return c.Error(errors.New(429, "TooManyConnections", "已达到最大连接数"))
+}
+
+// 限制也会在 hub 中自动执行
+```
+
+## 示例
+
+查看 [examples/basic](examples/basic) 获取完整示例，包括：
+- Hub 配置和验证
+- Prometheus 指标集成
+- 限流中间件
+- 公开和私有路由分组
+- 连接限制
+- 优雅关闭
 
 ## 错误码映射
 

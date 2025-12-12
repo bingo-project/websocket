@@ -278,10 +278,68 @@ cfg := &websocket.HubConfig{
     PongWait:         60 * time.Second,
     MaxMessageSize:   4096,
     WriteWait:        10 * time.Second,
+    MaxConnections:   10000,             // Max total connections (0 = unlimited)
+    MaxConnsPerUser:  5,                 // Max connections per user (0 = unlimited)
+}
+
+// Validate config before use
+if err := cfg.Validate(); err != nil {
+    log.Fatal(err)
 }
 
 hub := websocket.NewHubWithConfig(cfg)
 ```
+
+## Prometheus Metrics
+
+```go
+import "github.com/prometheus/client_golang/prometheus"
+
+// Create and register metrics
+metrics := websocket.NewMetrics("myapp", "websocket")
+metrics.MustRegister(prometheus.DefaultRegisterer)
+
+// Attach metrics to hub
+hub := websocket.NewHub(websocket.WithMetrics(metrics))
+
+// Available metrics:
+// - myapp_websocket_connections_total
+// - myapp_websocket_connections_current
+// - myapp_websocket_connections_authenticated
+// - myapp_websocket_connections_anonymous
+// - myapp_websocket_messages_sent_total
+// - myapp_websocket_broadcasts_total
+// - myapp_websocket_errors_total{type="connection_limit|user_limit|..."}
+// - myapp_websocket_topics_current
+// - myapp_websocket_subscriptions_total
+```
+
+## Connection Limits
+
+```go
+// Check before accepting connection (optional, for early rejection)
+if !hub.CanAcceptConnection() {
+    http.Error(w, "Too many connections", http.StatusServiceUnavailable)
+    return
+}
+
+// Check before login (optional)
+if !hub.CanUserConnect(userID) {
+    return c.Error(errors.New(429, "TooManyConnections", "Max connections reached"))
+}
+
+// Limits are also enforced automatically in hub
+```
+
+## Examples
+
+See [examples/basic](examples/basic) for a complete working example with:
+- Hub configuration and validation
+- Prometheus metrics integration
+- Rate limiting middleware
+- Public and private route groups
+- Connection limits
+- Graceful shutdown
 
 ## Error Code Mapping
 
