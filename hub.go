@@ -306,11 +306,14 @@ func (h *Hub) kickClient(client *Client, reason string) {
 	push := jsonrpc.NewPush("session.kicked", map[string]string{
 		"reason": reason,
 	})
-	data, _ := json.Marshal(push)
-
-	select {
-	case client.Send <- data:
-	default:
+	data, err := json.Marshal(push)
+	if err != nil {
+		h.logger.Errorw("failed to marshal kick notification", "error", err, "client_id", client.ID)
+	} else {
+		select {
+		case client.Send <- data:
+		default:
+		}
 	}
 
 	// Kick after delay
@@ -458,13 +461,14 @@ func (h *Hub) PushToTopic(topic, method string, data any) {
 	push := jsonrpc.NewPush(method, data)
 	msg, err := json.Marshal(push)
 	if err != nil {
+		h.logger.Errorw("failed to marshal push message", "error", err, "topic", topic, "method", method)
 		return
 	}
 
 	h.topicsLock.RLock()
-	clients := h.topics[topic]
-	h.topicsLock.RUnlock()
+	defer h.topicsLock.RUnlock()
 
+	clients := h.topics[topic]
 	for client := range clients {
 		select {
 		case client.Send <- msg:
@@ -483,6 +487,7 @@ func (h *Hub) PushToUser(platform, userID, method string, data any) {
 	push := jsonrpc.NewPush(method, data)
 	msg, err := json.Marshal(push)
 	if err != nil {
+		h.logger.Errorw("failed to marshal push message", "error", err, "user_id", userID, "method", method)
 		return
 	}
 
@@ -497,6 +502,7 @@ func (h *Hub) PushToUserAllPlatforms(userID, method string, data any) {
 	push := jsonrpc.NewPush(method, data)
 	msg, err := json.Marshal(push)
 	if err != nil {
+		h.logger.Errorw("failed to marshal push message", "error", err, "user_id", userID, "method", method)
 		return
 	}
 
@@ -639,11 +645,14 @@ func (h *Hub) expireClient(client *Client) {
 	push := jsonrpc.NewPush("session.expired", map[string]string{
 		"reason": "Token 已过期，请重新登录",
 	})
-	data, _ := json.Marshal(push)
-
-	select {
-	case client.Send <- data:
-	default:
+	data, err := json.Marshal(push)
+	if err != nil {
+		h.logger.Errorw("failed to marshal expire notification", "error", err, "client_id", client.ID)
+	} else {
+		select {
+		case client.Send <- data:
+		default:
+		}
 	}
 
 	time.AfterFunc(100*time.Millisecond, func() {
