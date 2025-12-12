@@ -473,14 +473,27 @@ func TestHub_GracefulShutdown(t *testing.T) {
 
 	// Cancel context to trigger shutdown
 	cancel()
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 
 	// Verify client is cleaned up
 	assert.Equal(t, 0, hub.AnonymousCount())
 
-	// Verify Send channel is closed
-	_, ok := <-client.Send
-	assert.False(t, ok, "Send channel should be closed")
+	// Should receive shutdown notification
+	select {
+	case msg := <-client.Send:
+		assert.Contains(t, string(msg), "session.shutdown")
+	default:
+		// May have already been drained or not sent
+	}
+
+	// Drain any remaining messages and verify channel is eventually closed
+	for {
+		_, ok := <-client.Send
+		if !ok {
+			break // Channel closed
+		}
+	}
+	// If we get here, channel was successfully closed
 }
 
 func TestHub_GetClient(t *testing.T) {

@@ -172,6 +172,8 @@ func (h *Hub) Run(ctx context.Context) {
 
 // shutdown closes all client connections on hub shutdown.
 func (h *Hub) shutdown() {
+	h.notifyShutdown()
+
 	// Close anonymous connections
 	h.anonymousLock.Lock()
 	for client := range h.anonymous {
@@ -189,6 +191,37 @@ func (h *Hub) shutdown() {
 	h.clientsLock.Unlock()
 }
 
+// notifyShutdown sends shutdown notification to all connected clients.
+func (h *Hub) notifyShutdown() {
+	push := jsonrpc.NewPush("session.shutdown", map[string]string{
+		"reason": "服务器正在关闭",
+	})
+	data, err := json.Marshal(push)
+	if err != nil {
+		return
+	}
+
+	// Notify anonymous clients
+	h.anonymousLock.RLock()
+	for client := range h.anonymous {
+		select {
+		case client.Send <- data:
+		default:
+		}
+	}
+	h.anonymousLock.RUnlock()
+
+	// Notify authenticated clients
+	h.clientsLock.RLock()
+	for client := range h.clients {
+		select {
+		case client.Send <- data:
+		default:
+		}
+	}
+	h.clientsLock.RUnlock()
+}
+
 // safeCloseSend closes the client's Send channel safely using sync.Once.
 func (h *Hub) safeCloseSend(client *Client) {
 	client.closeOnce.Do(func() {
@@ -197,6 +230,19 @@ func (h *Hub) safeCloseSend(client *Client) {
 }
 
 func (h *Hub) handleRegister(client *Client) {
+	// Check connection limit
+	if h.config.MaxConnections > 0 && h.TotalConnections() >= h.config.MaxConnections {
+		h.logger.Warnw("Connection rejected: max connections reached",
+			"addr", client.Addr, "max", h.config.MaxConnections)
+		h.safeCloseSend(client)
+
+		if h.metrics != nil {
+			h.metrics.ErrorsTotal.WithLabelValues("connection_limit").Inc()
+		}
+
+		return
+	}
+
 	h.anonymousLock.Lock()
 	h.anonymous[client] = true
 	h.anonymousLock.Unlock()
@@ -295,6 +341,41 @@ func (h *Hub) unsubscribeAll(client *Client) {
 func (h *Hub) handleLogin(event *LoginEvent) {
 	client := event.Client
 	key := userKey(event.Platform, event.UserID)
+
+	// Check if we're replacing an existing session on this platform
+	h.userLock.RLock()
+	existingOnPlatform := h.users[key]
+	h.userLock.RUnlock()
+
+	// Check per-user connection limit (only if not replacing an existing session)
+	if h.config.MaxConnsPerUser > 0 && existingOnPlatform == nil {
+		if h.UserConnectionCount(event.UserID) >= h.config.MaxConnsPerUser {
+			h.logger.Warnw("Login rejected: max connections per user reached",
+				"addr", client.Addr, "user_id", event.UserID, "max", h.config.MaxConnsPerUser)
+
+			// Send error and close connection
+			push := jsonrpc.NewPush("session.rejected", map[string]string{
+				"reason": "已达到最大连接数限制",
+			})
+			if data, err := json.Marshal(push); err == nil {
+				select {
+				case client.Send <- data:
+				default:
+				}
+			}
+
+			// Schedule close
+			time.AfterFunc(100*time.Millisecond, func() {
+				h.Unregister <- client
+			})
+
+			if h.metrics != nil {
+				h.metrics.ErrorsTotal.WithLabelValues("user_limit").Inc()
+			}
+
+			return
+		}
+	}
 
 	// Remove from anonymous
 	h.anonymousLock.Lock()
@@ -400,6 +481,47 @@ func (h *Hub) UserCount() int {
 	defer h.userLock.RUnlock()
 
 	return len(h.users)
+}
+
+// TotalConnections returns the total number of connections (anonymous + authenticated).
+func (h *Hub) TotalConnections() int {
+	return h.AnonymousCount() + h.ClientCount()
+}
+
+// CanAcceptConnection returns true if a new connection can be accepted.
+// Returns false if MaxConnections limit would be exceeded.
+func (h *Hub) CanAcceptConnection() bool {
+	if h.config.MaxConnections <= 0 {
+		return true // unlimited
+	}
+
+	return h.TotalConnections() < h.config.MaxConnections
+}
+
+// UserConnectionCount returns the number of connections for a user across all platforms.
+func (h *Hub) UserConnectionCount(userID string) int {
+	h.userLock.RLock()
+	defer h.userLock.RUnlock()
+
+	count := 0
+	suffix := "_" + userID
+	for key := range h.users {
+		if len(key) > len(suffix) && key[len(key)-len(suffix):] == suffix {
+			count++
+		}
+	}
+
+	return count
+}
+
+// CanUserConnect returns true if the user can establish another connection.
+// Returns false if MaxConnsPerUser limit would be exceeded.
+func (h *Hub) CanUserConnect(userID string) bool {
+	if h.config.MaxConnsPerUser <= 0 {
+		return true // unlimited
+	}
+
+	return h.UserConnectionCount(userID) < h.config.MaxConnsPerUser
 }
 
 // GetUserClient returns the client for a user.
