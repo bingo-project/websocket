@@ -372,6 +372,79 @@ See [examples/basic](examples/basic) for a complete working example with:
 | 429 | -32029 | Too many requests |
 | 500 | -32603 | Internal error |
 
+## Performance
+
+### Benchmark Results
+
+Tested on Apple M1 Pro:
+
+| Operation | Latency | Allocations |
+|-----------|---------|-------------|
+| Broadcast (1000 clients) | ~1.7μs | 0 allocs |
+| Subscribe | ~1.3μs | 10 allocs |
+| PushToTopic (100 clients) | ~6.3μs | 7 allocs |
+| Register/Unregister | ~2.8μs | 9 allocs |
+
+Run benchmarks:
+
+```bash
+go test -bench=. -benchmem ./...
+```
+
+### Capacity Estimation
+
+Based on [gorilla/websocket](https://github.com/gorilla/websocket) and Go runtime characteristics, single-server capacity is primarily memory-bound:
+
+| Server Config | Estimated Connections | Notes |
+|---------------|----------------------|-------|
+| 4 cores, 8GB | 10,000 - 30,000 | Dev/test |
+| 8 cores, 16GB | 50,000 - 100,000 | Production entry |
+| 16 cores, 32GB | 100,000 - 200,000 | Mid-size production |
+| 32 cores, 64GB | 200,000 - 500,000 | Large-scale production |
+
+**Memory estimate**: ~20-30KB per connection (2 goroutines, read/write buffers, application data)
+
+### Use Cases
+
+✅ **Recommended**:
+- Instant messaging (IM)
+- Real-time notifications
+- Online collaboration (docs, whiteboard)
+- Live data display (stocks, monitoring)
+- Game state synchronization
+
+⚠️ **Requires additional optimization**:
+- Ultra-large scale (1M+ connections): Consider async I/O libraries like [gnet](https://github.com/panjf2000/gnet) or [nbio](https://github.com/lesismal/nbio)
+- Ultra-high frequency (100K+ msg/s): Consider message batching and compression
+
+### Production Tuning
+
+#### Linux Kernel Parameters
+
+```bash
+# /etc/sysctl.conf
+
+# Increase file descriptor limit
+fs.file-max = 1000000
+
+# TCP connection optimization
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.netdev_max_backlog = 65535
+
+# Memory optimization
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+```
+
+#### Process Limits
+
+```bash
+# /etc/security/limits.conf
+* soft nofile 1000000
+* hard nofile 1000000
+```
+
 ## License
 
 MIT License

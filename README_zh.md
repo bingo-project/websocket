@@ -372,6 +372,79 @@ cancel()
 | 429 | -32029 | 请求过多 |
 | 500 | -32603 | 内部错误 |
 
+## 性能
+
+### Benchmark 结果
+
+在 Apple M1 Pro 上的测试结果：
+
+| 操作 | 耗时 | 内存分配 |
+|------|------|----------|
+| Broadcast (1000 clients) | ~1.7μs | 0 allocs |
+| Subscribe | ~1.3μs | 10 allocs |
+| PushToTopic (100 clients) | ~6.3μs | 7 allocs |
+| Register/Unregister | ~2.8μs | 9 allocs |
+
+运行 benchmark：
+
+```bash
+go test -bench=. -benchmem ./...
+```
+
+### 容量估算
+
+基于 [gorilla/websocket](https://github.com/gorilla/websocket) 和 Go 运行时特性，单机容量主要受内存限制：
+
+| 服务器配置 | 预估连接数 | 说明 |
+|-----------|-----------|------|
+| 4核 8GB | 10,000 - 30,000 | 开发/测试环境 |
+| 8核 16GB | 50,000 - 100,000 | 生产环境起步 |
+| 16核 32GB | 100,000 - 200,000 | 中型生产环境 |
+| 32核 64GB | 200,000 - 500,000 | 大型生产环境 |
+
+**内存估算**：每连接约 20-30KB（含 2 个 goroutine、读写缓冲区、应用数据）
+
+### 适用场景
+
+✅ **推荐场景**：
+- 即时通讯（IM）
+- 实时通知推送
+- 在线协作（文档、白板）
+- 实时数据展示（股票、监控）
+- 游戏状态同步
+
+⚠️ **需要额外优化的场景**：
+- 超大规模（100万+连接）：考虑使用 [gnet](https://github.com/panjf2000/gnet) 或 [nbio](https://github.com/lesismal/nbio) 等异步 I/O 库
+- 超高频消息（10万+ msg/s）：考虑消息批量合并、压缩
+
+### 生产环境调优
+
+#### Linux 内核参数
+
+```bash
+# /etc/sysctl.conf
+
+# 增加文件描述符限制
+fs.file-max = 1000000
+
+# TCP 连接优化
+net.core.somaxconn = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.core.netdev_max_backlog = 65535
+
+# 内存优化
+net.core.rmem_max = 16777216
+net.core.wmem_max = 16777216
+```
+
+#### 进程限制
+
+```bash
+# /etc/security/limits.conf
+* soft nofile 1000000
+* hard nofile 1000000
+```
+
 ## 许可证
 
 MIT License
