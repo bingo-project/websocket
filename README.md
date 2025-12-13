@@ -4,7 +4,9 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/bingo-project/websocket)](https://goreportcard.com/report/github.com/bingo-project/websocket)
 [![CI](https://github.com/bingo-project/websocket/actions/workflows/test.yml/badge.svg)](https://github.com/bingo-project/websocket/actions/workflows/test.yml)
 
-A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with middleware support, grouped routing, and connection management.
+A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with middleware support, grouped routing, and connection management. Part of the [Bingo](https://bingoctl.dev) ecosystem.
+
+📖 **Documentation**: [bingoctl.dev/en/advanced/websocket](https://bingoctl.dev/en/advanced/websocket)
 
 [中文文档](README_zh.md)
 
@@ -445,6 +447,10 @@ net.core.wmem_max = 16777216
 * hard nofile 1000000
 ```
 
+## Related
+
+- [Bingo Protocol Layer](https://bingoctl.dev/en/advanced/protocol-layer) - Using WebSocket as a pluggable protocol in Bingo
+
 ## License
 
-MIT License
+Apache License 2.0

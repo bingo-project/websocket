@@ -4,7 +4,9 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/bingo-project/websocket)](https://goreportcard.com/report/github.com/bingo-project/websocket)
 [![CI](https://github.com/bingo-project/websocket/actions/workflows/test.yml/badge.svg)](https://github.com/bingo-project/websocket/actions/workflows/test.yml)
 
-一个生产就绪的 Go WebSocket 框架，采用 JSON-RPC 2.0 协议，支持中间件、分组路由和连接管理。
+一个生产就绪的 Go WebSocket 框架，采用 JSON-RPC 2.0 协议，支持中间件、分组路由和连接管理。[Bingo](https://bingoctl.dev) 生态组件。
+
+📖 **文档**: [bingoctl.dev/advanced/websocket](https://bingoctl.dev/advanced/websocket)
 
 [English](README.md)
 
@@ -445,6 +447,10 @@ net.core.wmem_max = 16777216
 * hard nofile 1000000
 ```
 
+## 相关链接
+
+- [Bingo 可插拔协议层](https://bingoctl.dev/advanced/protocol-layer) - 在 Bingo 中使用 WebSocket 作为可插拔协议
+
 ## 许可证
 
-MIT License
+Apache License 2.0
