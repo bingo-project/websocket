@@ -16,7 +16,7 @@
 - **中间件模式** - 类似 Gin/Echo 的熟悉编程模型
 - **分组路由** - 支持 public/private 分组，不同方法使用不同中间件链
 - **连接管理** - Hub 管理客户端注册、认证和主题订阅
-- **内置处理器** - 开箱即用的心跳、订阅/取消订阅
+- **内置处理器** - 开箱即用的心跳、订阅/取消订阅、Token 登录
 - **限流** - 令牌桶算法，支持按方法配置
 - **单设备登录** - 同一用户再次登录时自动踢掉旧会话
 - **Prometheus 指标** - 内置可观测性，包含连接、消息和错误指标
@@ -179,6 +179,8 @@ router.Use(MyMiddleware)
 
 ## Handler
 
+### 自定义登录处理器
+
 ```go
 func Login(c *websocket.Context) *jsonrpc.Response {
     var req LoginRequest
@@ -197,6 +199,31 @@ func Login(c *websocket.Context) *jsonrpc.Response {
         "expiresAt": tokenExpiresAt,
     })
 }
+```
+
+### Token 认证登录
+
+对于基于 token 的认证，可使用内置的 `TokenLoginHandler` 配合 `LoginStateUpdater` 中间件：
+
+```go
+// 配置 token 解析器
+client := websocket.NewClient(hub, conn, ctx,
+    websocket.WithRouter(router),
+    websocket.WithTokenParser(func(token string) (*websocket.TokenInfo, error) {
+        // 在这里验证和解析你的 JWT/token
+        claims, err := jwt.Parse(token)
+        if err != nil {
+            return nil, err
+        }
+        return &websocket.TokenInfo{
+            UserID:    claims.UserID,
+            ExpiresAt: claims.ExpiresAt,
+        }, nil
+    }),
+)
+
+// 注册处理器和中间件
+router.Handle("login", websocket.TokenLoginHandler, middleware.LoginStateUpdater)
 ```
 
 ## 连接管理

@@ -77,6 +77,8 @@ func main() {
 	public.Handle("heartbeat", websocket.HeartbeatHandler)
 	public.Handle("echo", echoHandler)
 	public.Handle("login", loginHandler)
+	// Token-based login using built-in handler
+	public.Handle("token-login", websocket.TokenLoginHandler, middleware.LoginStateUpdater)
 
 	// Private methods (require auth)
 	private := router.Group(middleware.Auth)
@@ -118,6 +120,8 @@ func main() {
 
 		client := websocket.NewClient(hub, conn, context.Background(),
 			websocket.WithRouter(router),
+			// Token parser for token-login method
+			websocket.WithTokenParser(parseToken),
 		)
 		hub.Register <- client
 
@@ -200,4 +204,18 @@ func whoamiHandler(c *websocket.Context) *jsonrpc.Response {
 		"user_id":  c.Client.GetUserID(),
 		"platform": c.Client.GetPlatform(),
 	})
+}
+
+// parseToken simulates token parsing (in real app, use JWT library)
+func parseToken(token string) (*websocket.TokenInfo, error) {
+	// In real app, validate JWT signature and parse claims
+	// This is a simple simulation for demo purposes
+	if token == "" {
+		return nil, fmt.Errorf("empty token")
+	}
+
+	return &websocket.TokenInfo{
+		UserID:    "user_" + token[:min(8, len(token))],
+		ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+	}, nil
 }

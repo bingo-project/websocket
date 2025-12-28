@@ -16,7 +16,7 @@ A production-ready WebSocket framework for Go using JSON-RPC 2.0 protocol with m
 - **Middleware Pattern** - Familiar programming model like Gin/Echo
 - **Grouped Routing** - Support public/private groups with different middleware chains
 - **Connection Management** - Hub for client registration, authentication, and topic subscriptions
-- **Built-in Handlers** - Heartbeat, subscribe/unsubscribe out of the box
+- **Built-in Handlers** - Heartbeat, subscribe/unsubscribe, token login out of the box
 - **Rate Limiting** - Token bucket algorithm with per-method configuration
 - **Single Device Login** - Automatic session kick when same user logs in from another device
 - **Prometheus Metrics** - Built-in observability with connection, message, and error metrics
@@ -179,6 +179,8 @@ router.Use(MyMiddleware)
 
 ## Handler
 
+### Custom Login Handler
+
 ```go
 func Login(c *websocket.Context) *jsonrpc.Response {
     var req LoginRequest
@@ -197,6 +199,31 @@ func Login(c *websocket.Context) *jsonrpc.Response {
         "expiresAt": tokenExpiresAt,
     })
 }
+```
+
+### Token-Based Login
+
+For token-based authentication, use the built-in `TokenLoginHandler` with `LoginStateUpdater` middleware:
+
+```go
+// Configure token parser
+client := websocket.NewClient(hub, conn, ctx,
+    websocket.WithRouter(router),
+    websocket.WithTokenParser(func(token string) (*websocket.TokenInfo, error) {
+        // Validate and parse your JWT/token here
+        claims, err := jwt.Parse(token)
+        if err != nil {
+            return nil, err
+        }
+        return &websocket.TokenInfo{
+            UserID:    claims.UserID,
+            ExpiresAt: claims.ExpiresAt,
+        }, nil
+    }),
+)
+
+// Register handler with middleware
+router.Handle("login", websocket.TokenLoginHandler, middleware.LoginStateUpdater)
 ```
 
 ## Connection Management
