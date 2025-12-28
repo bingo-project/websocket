@@ -20,6 +20,13 @@ func init() {
 	validate.SetTagName("binding")
 }
 
+// LoginInfo contains login authentication information.
+// Used to pass login state from handler to middleware.
+type LoginInfo struct {
+	TokenInfo *TokenInfo
+	Platform  string
+}
+
 // Context contains all information needed by middleware.
 // It embeds context.Context so it can be passed directly to business layer methods.
 type Context struct {
@@ -28,6 +35,9 @@ type Context struct {
 	Client    *Client
 	Method    string
 	StartTime time.Time
+
+	// loginInfo stores login state set by handler for middleware to process.
+	loginInfo *LoginInfo
 }
 
 // RequestID returns the request ID from context.
@@ -74,6 +84,19 @@ func (c *Context) JSON(data any) *jsonrpc.Response {
 // Error returns a JSON-RPC error response.
 func (c *Context) Error(err error) *jsonrpc.Response {
 	return jsonrpc.NewErrorResponse(c.Request.ID, err)
+}
+
+// SetLoginInfo stores login information for middleware to process.
+func (c *Context) SetLoginInfo(tokenInfo *TokenInfo, platform string) {
+	c.loginInfo = &LoginInfo{
+		TokenInfo: tokenInfo,
+		Platform:  platform,
+	}
+}
+
+// LoginInfo returns the login information set by handler.
+func (c *Context) LoginInfo() *LoginInfo {
+	return c.loginInfo
 }
 
 // Handler is a message handler function.

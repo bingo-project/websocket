@@ -1,5 +1,5 @@
 // ABOUTME: Built-in handlers for common WebSocket methods.
-// ABOUTME: Provides heartbeat, subscribe, and unsubscribe handlers.
+// ABOUTME: Provides heartbeat, subscribe, unsubscribe, and token login handlers.
 
 package websocket
 
@@ -70,5 +70,45 @@ func UnsubscribeHandler(c *Context) *jsonrpc.Response {
 
 	return jsonrpc.NewResponse(c.Request.ID, map[string]any{
 		"unsubscribed": params.Topics,
+	})
+}
+
+// TokenLoginHandler handles token-based authentication.
+// It validates the provided access token and updates client state.
+// Use with LoginStateUpdater middleware to complete the login process.
+func TokenLoginHandler(c *Context) *jsonrpc.Response {
+	var params struct {
+		AccessToken string `json:"accessToken"`
+		Platform    string `json:"platform"`
+	}
+
+	if err := c.BindParams(&params); err != nil {
+		return jsonrpc.NewErrorResponse(c.Request.ID,
+			NewError(400, "InvalidParams", "Invalid login params"))
+	}
+
+	if params.AccessToken == "" {
+		return jsonrpc.NewErrorResponse(c.Request.ID,
+			NewError(400, "InvalidParams", "accessToken required"))
+	}
+
+	if !IsValidPlatform(params.Platform) {
+		return jsonrpc.NewErrorResponse(c.Request.ID,
+			NewError(400, "InvalidPlatform", "Invalid platform: %s", params.Platform))
+	}
+
+	// Parse token using client's token parser
+	tokenInfo, err := c.Client.ParseToken(params.AccessToken)
+	if err != nil {
+		return jsonrpc.NewErrorResponse(c.Request.ID,
+			NewError(401, "InvalidToken", "Token validation failed"))
+	}
+
+	// Set login info for middleware to process
+	c.SetLoginInfo(tokenInfo, params.Platform)
+
+	return jsonrpc.NewResponse(c.Request.ID, map[string]any{
+		"userId":    tokenInfo.UserID,
+		"expiresAt": tokenInfo.ExpiresAt,
 	})
 }

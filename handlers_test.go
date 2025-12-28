@@ -1,5 +1,5 @@
 // ABOUTME: Tests for built-in WebSocket handlers.
-// ABOUTME: Validates heartbeat, subscribe, and unsubscribe functionality.
+// ABOUTME: Validates heartbeat, subscribe, unsubscribe, and token login functionality.
 
 package websocket
 
@@ -178,4 +178,117 @@ func TestUnsubscribeHandler_EmptyTopics(t *testing.T) {
 
 	assert.NotNil(t, resp.Error)
 	assert.Equal(t, -32602, resp.Error.Code) // JSON-RPC Invalid Params
+}
+
+func TestTokenLoginHandler(t *testing.T) {
+	hub := NewHub()
+	client := &Client{
+		ID:   "test",
+		hub:  hub,
+		Send: make(chan []byte, 256),
+		tokenParser: func(token string) (*TokenInfo, error) {
+			return &TokenInfo{
+				UserID:    "user-123",
+				ExpiresAt: time.Now().Add(time.Hour).Unix(),
+			}, nil
+		},
+	}
+
+	params, _ := json.Marshal(map[string]string{
+		"accessToken": "valid-token",
+		"platform":    "web",
+	})
+	c := &Context{
+		Context: context.Background(),
+		Request: &jsonrpc.Request{ID: 1, Method: "auth.loginByToken", Params: params},
+		Client:  client,
+		Method:  "auth.loginByToken",
+	}
+
+	resp := TokenLoginHandler(c)
+
+	assert.Nil(t, resp.Error)
+	result := resp.Result.(map[string]any)
+	assert.Equal(t, "user-123", result["userId"])
+	assert.NotZero(t, result["expiresAt"])
+
+	// Verify login info was set
+	loginInfo := c.LoginInfo()
+	assert.NotNil(t, loginInfo)
+	assert.Equal(t, "user-123", loginInfo.TokenInfo.UserID)
+	assert.Equal(t, "web", loginInfo.Platform)
+}
+
+func TestTokenLoginHandler_MissingToken(t *testing.T) {
+	hub := NewHub()
+	client := &Client{
+		ID:  "test",
+		hub: hub,
+	}
+
+	params, _ := json.Marshal(map[string]string{
+		"platform": "web",
+	})
+	c := &Context{
+		Context: context.Background(),
+		Request: &jsonrpc.Request{ID: 1, Method: "auth.loginByToken", Params: params},
+		Client:  client,
+		Method:  "auth.loginByToken",
+	}
+
+	resp := TokenLoginHandler(c)
+
+	assert.NotNil(t, resp.Error)
+	assert.Equal(t, -32602, resp.Error.Code) // JSON-RPC Invalid Params
+}
+
+func TestTokenLoginHandler_InvalidPlatform(t *testing.T) {
+	hub := NewHub()
+	client := &Client{
+		ID:  "test",
+		hub: hub,
+	}
+
+	params, _ := json.Marshal(map[string]string{
+		"accessToken": "valid-token",
+		"platform":    "invalid",
+	})
+	c := &Context{
+		Context: context.Background(),
+		Request: &jsonrpc.Request{ID: 1, Method: "auth.loginByToken", Params: params},
+		Client:  client,
+		Method:  "auth.loginByToken",
+	}
+
+	resp := TokenLoginHandler(c)
+
+	assert.NotNil(t, resp.Error)
+	assert.Equal(t, -32602, resp.Error.Code) // JSON-RPC Invalid Params
+}
+
+func TestTokenLoginHandler_InvalidToken(t *testing.T) {
+	hub := NewHub()
+	client := &Client{
+		ID:  "test",
+		hub: hub,
+		tokenParser: func(token string) (*TokenInfo, error) {
+			return nil, NewError(401, "InvalidToken", "token expired")
+		},
+	}
+
+	params, _ := json.Marshal(map[string]string{
+		"accessToken": "invalid-token",
+		"platform":    "web",
+	})
+	c := &Context{
+		Context: context.Background(),
+		Request: &jsonrpc.Request{ID: 1, Method: "auth.loginByToken", Params: params},
+		Client:  client,
+		Method:  "auth.loginByToken",
+	}
+
+	resp := TokenLoginHandler(c)
+
+	assert.NotNil(t, resp.Error)
+	assert.Equal(t, -32001, resp.Error.Code) // JSON-RPC Unauthenticated
 }
